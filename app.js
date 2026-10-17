@@ -10,7 +10,8 @@ function show(tab) {
   document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.tab === tab));
   if (tab === "inventory") loadInventory();
   if (tab === "forecast") renderForecast();
-  location.hash = tab;
+  history.replaceState(null, "", "#" + tab);
+  if (tab === "forecast" && chart) chart.resize();
 }
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-tab],[data-goto]");
@@ -33,7 +34,7 @@ const SCENARIOS = [
 const TODAY = 200;
 const seasonal = (m, d) => m.base * m.amp * Math.cos(((d - m.peak) / 365) * 2 * Math.PI);
 function rng(seed) { return () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296; }
-function history(m) {
+function pastDemand(m) {
   const r = rng(m.id.charCodeAt(0) * 97 + m.base);
   return Array.from({ length: 60 }, (_, i) => { const t = i - 60; const v = m.base * (1 + m.trend * t) + seasonal(m, (TODAY + t + 365) % 365) + (r() - 0.5) * m.base * 0.25; return { day: t, v: Math.max(0, Math.round(v)) }; });
 }
@@ -54,7 +55,7 @@ let chart;
 function renderForecast() {
   const m = MEDICINES.find((x) => x.id === $("#fcMed").value), h = +$("#fcHor").value;
   $("#fcHorV").textContent = h;
-  const fc = forecast(m, $("#fcScen").value, h), hist = history(m);
+  const fc = forecast(m, $("#fcScen").value, h), hist = pastDemand(m);
   const total = fc.reduce((s, p) => s + p.f, 0), so = stockoutDay(m.stock, fc.map((p) => p.f));
   $("#fcStats").innerHTML = `
     <div class="card stat"><small>Demand next ${h}d</small><br><b>${fmt(total)}</b></div>
@@ -68,7 +69,7 @@ function renderForecast() {
     { label: "Upper", data: [...pad, ...fc.map((p) => p.hi)], borderColor: "transparent", backgroundColor: "rgba(15,118,110,.15)", fill: "+1", pointRadius: 0 },
     { label: "Lower", data: [...pad, ...fc.map((p) => p.lo)], borderColor: "transparent", pointRadius: 0 },
   ] };
-  if (chart) { chart.data = data; chart.update(); } else chart = new Chart($("#fcChart"), { type: "line", data, options: { plugins: { legend: { labels: { filter: (i) => i.text === "Actual" || i.text === "Forecast" } } } } });
+  if (chart) { chart.data = data; chart.update("none"); } else chart = new Chart($("#fcChart"), { type: "line", data, options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { labels: { filter: (i) => i.text === "Actual" || i.text === "Forecast" } } } } });
 }
 
 /* ---------- inventory ---------- */
@@ -166,4 +167,5 @@ function applyUser(u) {
   $("#authForm").hidden = !!u; document.querySelector(".seg").hidden = !!u; $("#signOut").hidden = !u;
 }
 sb.auth.onAuthStateChange((_e, s) => applyUser(s?.user ?? null));
-sb.auth.getUser().then(({ data }) => { applyUser(data.user); show(location.hash.slice(1) || "home"); });
+show(location.hash.slice(1) || "home");
+sb.auth.getUser().then(({ data }) => { applyUser(data.user); if (location.hash === "#inventory") loadInventory(); }).catch(() => applyUser(null));
