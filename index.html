@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stockout Shield</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="config.js"></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">🛡</span><div><b>Stockout Shield</b><small>Medicine demand forecasting</small></div></div>
+    <nav id="nav">
+      <a data-tab="home" class="active">Home</a>
+      <a data-tab="forecast">Forecast</a>
+      <a data-tab="inventory">Inventory</a>
+      <a data-tab="import">Import Excel</a>
+      <a data-tab="suppliers">Suppliers</a>
+      <a data-tab="auth" id="authLink" class="btn">Sign in</a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- HOME -->
+    <section id="home" class="tab show">
+      <div class="hero">
+        <h1>Never run out of essential medicines.</h1>
+        <p>Forecast demand, watch your stock and get warned before shelves go empty.</p>
+        <div class="row"><a class="btn" data-goto="forecast">Open forecast</a><a class="btn ghost" data-goto="auth">Sign in / Sign up</a></div>
+      </div>
+      <div class="grid4">
+        <div class="card" data-goto="forecast"><h3>30-day forecasts</h3><p>Expected demand with clear reasons.</p></div>
+        <div class="card" data-goto="inventory"><h3>Inventory</h3><p>Days of cover and reorder suggestions.</p></div>
+        <div class="card" data-goto="import"><h3>Import from Excel</h3><p>Bring in your existing stock sheets.</p></div>
+        <div class="card" data-goto="suppliers"><h3>Emergency suppliers</h3><p>Reach nearby pharmacies fast.</p></div>
+      </div>
+    </section>
+
+    <!-- FORECAST -->
+    <section id="forecast" class="tab">
+      <h2>Demand forecast</h2>
+      <div class="row">
+        <label>Medicine <select id="fcMed"></select></label>
+        <label>Scenario <select id="fcScen"></select></label>
+        <label>Horizon <input id="fcHor" type="range" min="20" max="30" value="30" /> <span id="fcHorV">30</span> days</label>
+      </div>
+      <div class="grid4" id="fcStats"></div>
+      <div class="card"><canvas id="fcChart" height="110"></canvas></div>
+    </section>
+
+    <!-- INVENTORY -->
+    <section id="inventory" class="tab">
+      <h2>Inventory</h2>
+      <p class="muted">Your saved stock (imported or added). Days of cover = stock ÷ daily usage.</p>
+      <div class="needauth muted">Sign in to see your inventory.</div>
+      <form id="addForm" class="row authonly">
+        <input name="name" placeholder="Medicine name" required />
+        <input name="category" placeholder="Category" />
+        <input name="stock" type="number" placeholder="Stock" required />
+        <input name="daily_usage" type="number" step="any" placeholder="Daily usage" />
+        <button class="btn">Add</button>
+      </form>
+      <div class="card authonly"><table id="invTable"></table></div>
+    </section>
+
+    <!-- IMPORT -->
+    <section id="import" class="tab">
+      <h2>Import from Excel</h2>
+      <p class="muted">Upload .xlsx, .xls or .csv — any number of medicines and sheets. Columns are matched automatically.</p>
+      <div class="needauth muted">Sign in to import.</div>
+      <div class="authonly">
+        <label class="drop">Choose a spreadsheet<input id="file" type="file" accept=".xlsx,.xls,.csv" hidden /></label>
+        <div id="mapper" class="card" hidden>
+          <h3>Match columns</h3>
+          <div class="row" id="mapSelects"></div>
+          <p id="readyMsg"></p>
+          <div class="scroll"><table id="previewTable"></table></div>
+          <button id="saveImport" class="btn">Save</button>
+        </div>
+        <p id="importMsg"></p>
+      </div>
+    </section>
+
+    <!-- SUPPLIERS -->
+    <section id="suppliers" class="tab">
+      <h2>Emergency suppliers</h2>
+      <div class="grid2" id="supList"></div>
+    </section>
+
+    <!-- AUTH -->
+    <section id="auth" class="tab">
+      <div class="card authcard">
+        <div class="seg"><button id="mSignin" class="on">Sign in</button><button id="mSignup">Sign up</button></div>
+        <form id="authForm">
+          <div class="signup-only"><label>Full name<input name="full_name" /></label>
+            <label>Shop type<select name="shop_type"><option value="medical_shop">Medical shop</option><option value="hospital">Hospital</option><option value="seller">Seller / Distributor</option></select></label>
+            <label>Address<input name="address" /></label></div>
+          <label>Email<input name="email" type="email" required /></label>
+          <label>Password<input name="password" type="password" minlength="6" required /></label>
+          <p id="authMsg"></p>
+          <button class="btn wide" id="authBtn">Sign in</button>
+        </form>
+        <button id="signOut" class="btn ghost wide" hidden>Sign out</button>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
