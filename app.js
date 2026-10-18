@@ -1,59 +1,30 @@
-// Stockout Shield — plain JavaScript version
-const sb = supabase.createClient(SS_CONFIG.url, SS_CONFIG.key);
-const $ = (s) => document.querySelector(s);
-const fmt = (n) => Math.round(n).toLocaleString();
-let user = null;
+// Stockout Shield — standalone browser JavaScript.
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = n => Math.round(n).toLocaleString();
+const GUEST_KEY = "stockout-shield-guest-v1";
+let user=null, guest=null, sb=null;
+try { guest=JSON.parse(sessionStorage.getItem(GUEST_KEY) || "null"); if(!Array.isArray(guest)) guest=null; } catch {}
+function persistGuest() { sessionStorage.setItem(GUEST_KEY,JSON.stringify(guest)); }
+function client(){ if(!sb){if(!window.supabase) throw Error("Account service unavailable. Continue as guest or try again online.");sb=window.supabase.createClient(SS_CONFIG.url,SS_CONFIG.key);}return sb; }
+function show(page){ location.href=({home:"index",auth:"signin"}[page]||page)+".html"; }
+function demoRows(){return MEDICINES.map(m=>({id:m.id,name:m.name,category:m.id==="act"?"Antimalarial":m.id==="amox"?"Antibiotic":m.id==="ors"?"Rehydration":"Pain relief",stock:m.stock,daily_usage:m.base,expiry_date:"2027-12-31"}));}
+function addGuest(rows){guest.push(...rows.map(({extra,...r})=>({...r,id:crypto.randomUUID()})));persistGuest();}
+function applyUser(u){user=u;document.body.classList.toggle("in",!!u||guest!==null);document.querySelectorAll(".account-link").forEach(a=>a.textContent=guest!==null?"Guest":u?"Account":"Sign in");$(".guest-banner").hidden=guest===null;
 
-/* ---------- tabs ---------- */
-function show(tab) {
-  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("show", t.id === tab));
-  document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.tab === tab));
-  if (tab === "inventory") loadInventory();
-  if (tab === "forecast") renderForecast();
-  history.replaceState(null, "", "#" + tab);
-  if (tab === "forecast" && chart) chart.resize();
-}
-document.addEventListener("click", (e) => {
-  const el = e.target.closest("[data-tab],[data-goto]");
-  if (el) show(el.dataset.tab || el.dataset.goto);
-});
-
-/* ---------- forecast engine ---------- */
-const MEDICINES = [
-  { id: "act", name: "Artemether-Lumefantrine", base: 120, amp: 0.45, peak: 220, trend: 0.0008, stock: 2900 },
-  { id: "amox", name: "Amoxicillin 500mg", base: 210, amp: 0.18, peak: 20, trend: 0.0022, stock: 6100 },
-  { id: "ors", name: "ORS Sachets", base: 340, amp: 0.3, peak: 190, trend: 0.0004, stock: 9800 },
-  { id: "para", name: "Paracetamol 500mg", base: 520, amp: 0.12, peak: 350, trend: 0.0003, stock: 18500 },
-];
-const SCENARIOS = [
-  { id: "none", label: "Baseline", boost: {} },
-  { id: "malaria", label: "Seasonal malaria surge", boost: { act: 0.4, para: 0.12 } },
-  { id: "abx", label: "Rising antibiotic need", boost: { amox: 0.35, para: 0.08 } },
-  { id: "outbreak", label: "Outbreak response", boost: { ors: 0.8, amox: 0.15, para: 0.15 } },
-];
-const TODAY = 200;
-const seasonal = (m, d) => m.base * m.amp * Math.cos(((d - m.peak) / 365) * 2 * Math.PI);
-function rng(seed) { return () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296; }
-function pastDemand(m) {
-  const r = rng(m.id.charCodeAt(0) * 97 + m.base);
-  return Array.from({ length: 60 }, (_, i) => { const t = i - 60; const v = m.base * (1 + m.trend * t) + seasonal(m, (TODAY + t + 365) % 365) + (r() - 0.5) * m.base * 0.25; return { day: t, v: Math.max(0, Math.round(v)) }; });
-}
-function forecast(m, scen, h) {
-  const b = SCENARIOS.find((s) => s.id === scen).boost[m.id] || 0;
-  return Array.from({ length: h }, (_, i) => {
-    const d = i + 1, base = m.base + seasonal(m, (TODAY + d) % 365) + m.base * m.trend * d;
-    const f = base + base * b * Math.min(1, d / 7), sp = f * (0.08 + 0.006 * d) * (1 + b * 0.5);
-    return { day: d, f, lo: Math.max(0, f - sp), hi: f + sp };
-  });
-}
-function stockoutDay(stock, daily) { let l = stock; for (let i = 0; i < daily.length; i++) { l -= daily[i]; if (l < 0) return i + 1; } return null; }
-
-$("#fcMed").innerHTML = MEDICINES.map((m) => `<option value="${m.id}">${m.name}</option>`).join("");
+ if($("#authForm")){const active=guest!==null||!!u;$("#authForm").hidden=active;$(".seg").hidden=active;["#forgotPassword","#googleSignIn","#guestSignIn",".divider"].forEach(s=>$(s).hidden=active);$("#signOut").hidden=!active;$("#signOut").textContent=guest!==null?"Exit guest mode":"Sign out";$("#sessionLabel").hidden=!active;$("#sessionLabel").textContent=guest!==null?"Guest demo session":u?"Signed in as "+u.email:"";}}
+function clearImport(){rawRows=[];headers=[];map={};if($("#mapper"))$("#mapper").hidden=true;if($("#file"))$("#file").value="";}
+async function leave(){if(guest!==null){sessionStorage.removeItem(GUEST_KEY);guest=null;}else await client().auth.signOut();show("auth");}
+document.querySelectorAll(".exit-guest").forEach(b=>b.onclick=leave);
+function availableMedicines(){return guest===null?MEDICINES:guest.map(r=>({...MEDICINES.find(m=>m.name===r.name)||MEDICINES[0],id:MEDICINES.find(m=>m.name===r.name)?.id||r.id,name:r.name,base:r.daily_usage||0,stock:r.stock}));}
+function cssToken(name){return getComputedStyle(document.documentElement).getPropertyValue(name).trim();}
+function initForecast(){
+$("#fcMed").innerHTML = availableMedicines().map((m) => `<option value="${m.id}">${m.name}</option>`).join("");
 $("#fcScen").innerHTML = SCENARIOS.map((s) => `<option value="${s.id}">${s.label}</option>`).join("");
 ["#fcMed", "#fcScen", "#fcHor"].forEach((s) => $(s).addEventListener("input", renderForecast));
 let chart;
 function renderForecast() {
-  const m = MEDICINES.find((x) => x.id === $("#fcMed").value), h = +$("#fcHor").value;
+  const m = availableMedicines().find((x) => x.id === $("#fcMed").value) || {...MEDICINES[0],base:0,stock:0}, h = +$("#fcHor").value;
   $("#fcHorV").textContent = h;
   const fc = forecast(m, $("#fcScen").value, h), hist = pastDemand(m);
   const total = fc.reduce((s, p) => s + p.f, 0), so = stockoutDay(m.stock, fc.map((p) => p.f));
@@ -64,35 +35,30 @@ function renderForecast() {
     <div class="card stat"><small>Suggested reorder</small><br><b>${fmt(Math.max(0, fc.reduce((s, p) => s + p.hi, 0) - m.stock))}</b></div>`;
   const labels = [...hist.map((p) => p.day), ...fc.map((p) => "+" + p.day)], pad = hist.map(() => null);
   const data = { labels, datasets: [
-    { label: "Actual", data: [...hist.map((p) => p.v), ...fc.map(() => null)], borderColor: "#d68910", pointRadius: 0 },
-    { label: "Forecast", data: [...pad, ...fc.map((p) => p.f)], borderColor: "#0f766e", borderWidth: 2.5, pointRadius: 0 },
-    { label: "Upper", data: [...pad, ...fc.map((p) => p.hi)], borderColor: "transparent", backgroundColor: "rgba(15,118,110,.15)", fill: "+1", pointRadius: 0 },
+    { label: "Actual", data: [...hist.map((p) => p.v), ...fc.map(() => null)], borderColor: cssToken("--warn"), pointRadius: 0 },
+    { label: "Forecast", data: [...pad, ...fc.map((p) => p.f)], borderColor: cssToken("--primary"), borderWidth: 2.5, pointRadius: 0 },
+    { label: "Upper", data: [...pad, ...fc.map((p) => p.hi)], borderColor: "transparent", backgroundColor: cssToken("--forecast-band"), fill: "+1", pointRadius: 0 },
     { label: "Lower", data: [...pad, ...fc.map((p) => p.lo)], borderColor: "transparent", pointRadius: 0 },
   ] };
   if (chart) { chart.data = data; chart.update("none"); } else chart = new Chart($("#fcChart"), { type: "line", data, options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { labels: { filter: (i) => i.text === "Actual" || i.text === "Forecast" } } } } });
 }
 
-/* ---------- inventory ---------- */
+
+if(!availableMedicines().length){$("#fcMed").innerHTML="<option>No medicines</option>";$("#fcMed").disabled=true;}renderForecast();}
 async function loadInventory() {
-  if (!user) return;
-  const { data, error } = await sb.from("medicine_stock").select("*").order("name");
-  if (error) return ($("#invTable").innerHTML = `<tr><td class="bad">${error.message}</td></tr>`);
+  if (!user && guest===null) return;
+  const { data, error } = guest!==null ? {data:guest,error:null} : await client().from("medicine_stock").select("*").order("name");
+  if (error) return ($("#invTable").innerHTML = `<tr><td class="bad">${esc(error.message)}</td></tr>`);
   $("#invTable").innerHTML = "<tr><th>Medicine</th><th>Category</th><th>Stock</th><th>Daily usage</th><th>Days of cover</th><th>Expiry</th><th></th></tr>" +
     (data.length ? data.map((r) => { const c = r.daily_usage > 0 ? r.stock / r.daily_usage : null;
-      return `<tr><td><b>${esc(r.name)}</b></td><td>${esc(r.category)}</td><td>${fmt(r.stock)}</td><td>${r.daily_usage}</td>
-      <td class="${c === null ? "" : c < 7 ? "bad" : c < 30 ? "warn" : "ok"}">${c === null ? "—" : Math.floor(c) + " days"}</td><td>${r.expiry_date || ""}</td>
-      <td><button class="btn ghost" data-del="${r.id}">Delete</button></td></tr>`; }).join("") : `<tr><td colspan="7" class="muted">No medicines yet — add one or import an Excel sheet.</td></tr>`);
+      return `<tr><td><b>${esc(r.name)}</b></td><td>${esc(r.category)}</td><td>${fmt(r.stock)}</td><td>${fmt(r.daily_usage || 0)}</td>
+      <td class="${c === null ? "" : c < 7 ? "bad" : c < 30 ? "warn" : "ok"}">${c === null ? "—" : Math.floor(c) + " days"}</td><td>${esc(r.expiry_date || "")}</td>
+      <td><button class="btn ghost" data-del="${esc(r.id)}">Delete</button></td></tr>`; }).join("") : `<tr><td colspan="7" class="muted">No medicines yet — add one or import an Excel sheet.</td></tr>`);
 }
-$("#invTable").addEventListener("click", async (e) => { const id = e.target.dataset.del; if (id) { await sb.from("medicine_stock").delete().eq("id", id); loadInventory(); } });
-$("#addForm").addEventListener("submit", async (e) => {
-  e.preventDefault(); const f = new FormData(e.target);
-  const { error } = await sb.from("medicine_stock").insert({ name: f.get("name"), category: f.get("category") || "", stock: +f.get("stock") || 0, daily_usage: +f.get("daily_usage") || 0 });
-  if (error) alert(error.message); else { e.target.reset(); loadInventory(); }
-});
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-
-/* ---------- excel import ---------- */
-const FIELDS = { name: "Medicine name", category: "Category", stock: "Stock", daily_usage: "Daily usage", expiry_date: "Expiry date" };
+function initInventory(){$("#invTable").addEventListener("click",async e=>{const id=e.target.closest("[data-del]")?.dataset.del;if(!id)return;try{if(guest!==null){guest=guest.filter(r=>r.id!==id);persistGuest();}else{const {error}=await client().from("medicine_stock").delete().eq("id",id);if(error)throw error;}await loadInventory();}catch(err){$("#inventoryMsg").textContent=err.message;}});
+$("#addForm").addEventListener("submit",async e=>{e.preventDefault();const f=new FormData(e.target);const row={name:String(f.get("name")).trim(),category:String(f.get("category")||""),stock:Number(f.get("stock")),daily_usage:Number(f.get("daily_usage")||0),expiry_date:null};if(!row.name||row.stock<0||row.daily_usage<0)return;try{if(guest!==null)addGuest([row]);else{const {error}=await client().from("medicine_stock").insert(row);if(error)throw error;}e.target.reset();$("#inventoryMsg").textContent="";loadInventory();}catch(err){$("#inventoryMsg").textContent=err.message;}});
+}
+function initImport(){const FIELDS = { name: "Medicine name", category: "Category", stock: "Stock", daily_usage: "Daily usage", expiry_date: "Expiry date" };
 const ALIASES = {
   name: ["name", "medicine", "medicine name", "drug", "item", "product", "item name"],
   category: ["category", "type", "class", "group"],
@@ -107,13 +73,13 @@ const toDate = (v) => { if (v === "" || v == null) return null; if (typeof v ===
 
 $("#file").addEventListener("change", async (e) => {
   const file = e.target.files[0]; if (!file) return;
-  const wb = XLSX.read(await file.arrayBuffer());
+  try { const wb = XLSX.read(await file.arrayBuffer());
   rawRows = wb.SheetNames.flatMap((n) => XLSX.utils.sheet_to_json(wb.Sheets[n], { defval: "" }));
   headers = [...new Set(rawRows.flatMap(Object.keys))];
   map = {};
   for (const k in ALIASES) { const hit = headers.find((h) => ALIASES[k].includes(norm(h))) || headers.find((h) => ALIASES[k].some((a) => norm(h).includes(a))); if (hit && !Object.values(map).includes(hit)) map[k] = hit; }
   $("#mapSelects").innerHTML = Object.entries(FIELDS).map(([k, l]) => `<label>${l}<select data-field="${k}"><option value="">— none —</option>${headers.map((h) => `<option ${map[k] === h ? "selected" : ""}>${esc(h)}</option>`).join("")}</select></label>`).join("");
-  $("#mapper").hidden = false; renderPreview();
+  $("#mapper").hidden = false; renderPreview(); } catch(err) {$("#importMsg").textContent="Could not read spreadsheet: "+err.message;}
 });
 $("#mapSelects").addEventListener("change", (e) => { map[e.target.dataset.field] = e.target.value || undefined; renderPreview(); });
 function mapped() {
@@ -127,45 +93,49 @@ function mapped() {
 function renderPreview() {
   const rows = mapped();
   $("#readyMsg").textContent = `${rows.length} medicines ready${map.name ? "" : " — pick the medicine name column"}.`;
-  $("#saveImport").textContent = `Save ${rows.length} medicines`;
+  $("#saveImport").textContent = `Save ${rows.length} medicines`;$("#saveImport").disabled=!rows.length;
   $("#previewTable").innerHTML = "<tr>" + Object.values(FIELDS).map((l) => `<th>${l}</th>`).join("") + "</tr>" +
-    rows.slice(0, 50).map((r) => `<tr><td>${esc(r.name)}</td><td>${esc(r.category)}</td><td>${r.stock}</td><td>${r.daily_usage}</td><td>${r.expiry_date || ""}</td></tr>`).join("");
+    rows.slice(0, 50).map((r) => `<tr><td>${esc(r.name)}</td><td>${esc(r.category)}</td><td>${r.stock}</td><td>${r.daily_usage}</td><td>${esc(r.expiry_date || "")}</td></tr>`).join("");
 }
 $("#saveImport").addEventListener("click", async () => {
   const rows = mapped(); if (!rows.length) return;
-  const { error } = await sb.from("medicine_stock").insert(rows);
-  $("#importMsg").textContent = error ? error.message : `Imported ${rows.length} medicines. See the Inventory tab.`;
+  const { error } = guest!==null ? (addGuest(rows),{error:null}) : await client().from("medicine_stock").insert(rows);
+  $("#importMsg").textContent = error ? error.message : `Imported ${rows.length} medicines. See the Inventory page.`;
   if (!error) { $("#mapper").hidden = true; $("#file").value = ""; }
 });
 
-/* ---------- suppliers ---------- */
-const SUPPLIERS = [
+}
+function initSuppliers(){const SUPPLIERS = [
   ["Sharma Medical Store", 1.2, "+91 98220 12345", true], ["City Pharma Wholesale", 3.8, "+91 98220 67890", false],
   ["Green Cross Pharmacy", 2.4, "+91 98220 24680", true], ["District Drug Depot", 6.5, "+91 98220 13579", false],
 ];
 $("#supList").innerHTML = SUPPLIERS.map(([n, d, p, o]) => `<div class="card"><h3>${n}</h3><p>${d} km away · ${o ? "Open 24h" : "Day hours"}</p>
-  <div class="row"><a class="btn" href="tel:${p.replace(/\s/g, "")}">Call</a><a class="btn ghost" target="_blank" href="https://wa.me/${p.replace(/\D/g, "")}">WhatsApp</a></div></div>`).join("");
+  <div class="row"><a class="btn" href="tel:${p.replace(/\s/g, "")}">Call</a><a class="btn ghost" target="_blank" rel="noopener noreferrer" href="https://wa.me/${p.replace(/\D/g, "")}">WhatsApp</a></div></div>`).join("");
 
-/* ---------- auth ---------- */
-let mode = "signin";
+}
+function initAuth(){let mode = "signin";
 function setMode(m) { mode = m; $("#authForm").classList.toggle("signup", m === "signup"); $("#mSignin").classList.toggle("on", m === "signin"); $("#mSignup").classList.toggle("on", m === "signup"); $("#authBtn").textContent = m === "signin" ? "Sign in" : "Create account"; $("#authMsg").textContent = ""; }
 $("#mSignin").onclick = () => setMode("signin"); $("#mSignup").onclick = () => setMode("signup");
 $("#authForm").addEventListener("submit", async (e) => {
   e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); $("#authBtn").disabled = true;
-  const res = mode === "signup"
-    ? await sb.auth.signUp({ email: f.email, password: f.password, options: { emailRedirectTo: location.origin + location.pathname, data: { full_name: f.full_name, shop_type: f.shop_type, address: f.address } } })
-    : await sb.auth.signInWithPassword({ email: f.email, password: f.password });
+  try { const res = mode === "signup"
+    ? await client().auth.signUp({ email: f.email, password: f.password, options: { emailRedirectTo: new URL("signin.html",location.href).href, data: { full_name: f.full_name, shop_type: f.shop_type, address: f.address } } })
+    : await client().auth.signInWithPassword({ email: f.email, password: f.password });
   $("#authBtn").disabled = false;
   if (res.error) return ($("#authMsg").innerHTML = `<span class="bad">${esc(res.error.message)}</span>`);
   if (mode === "signup" && !res.data.session) return ($("#authMsg").innerHTML = `<span class="ok">Check your email to confirm your account, then sign in.</span>`);
-  show("inventory");
+  show("inventory"); } catch(err){$("#authMsg").textContent=err.message;} finally {$("#authBtn").disabled=false;}
 });
-$("#signOut").onclick = async () => { await sb.auth.signOut(); show("home"); };
-function applyUser(u) {
-  user = u; document.body.classList.toggle("in", !!u);
-  $("#authLink").textContent = u ? "Account" : "Sign in";
-  $("#authForm").hidden = !!u; document.querySelector(".seg").hidden = !!u; $("#signOut").hidden = !u;
+
+$("#signOut").onclick=leave;
+$("#guestSignIn").onclick=()=>{guest=demoRows();persistGuest();show("inventory");};
+$("#googleSignIn").onclick=async()=>{try{if(location.protocol==="file:")throw Error("Host this folder online to use Google sign-in. Guest mode is available now.");const {error}=await client().auth.signInWithOAuth({provider:"google",options:{redirectTo:new URL("inventory.html",location.href).href}});if(error)throw error;}catch(err){$("#authMsg").textContent=err.message;}};
+$("#forgotPassword").onclick=async()=>{const email=prompt("Enter your account email:");if(!email)return;try{if(location.protocol==="file:")throw Error("Host this folder online to receive working reset links.");const {error}=await client().auth.resetPasswordForEmail(email,{redirectTo:new URL("reset-password.html",location.href).href});if(error)throw error;$("#authMsg").textContent="Password reset email requested — check your inbox.";}catch(err){$("#authMsg").textContent=err.message;}};
 }
-sb.auth.onAuthStateChange((_e, s) => applyUser(s?.user ?? null));
-show(location.hash.slice(1) || "home");
-sb.auth.getUser().then(({ data }) => { applyUser(data.user); if (location.hash === "#inventory") loadInventory(); }).catch(() => applyUser(null));
+let recovery=location.hash.includes("type=recovery");
+function initReset(){const form=$("#resetForm");form.onsubmit=async e=>{e.preventDefault();try{const {error}=await client().auth.updateUser({password:new FormData(form).get("password")});if(error)throw error;show("inventory");}catch(err){$("#resetMsg").textContent=err.message;}};setTimeout(()=>{form.hidden=!recovery;$("#resetMsg").textContent=recovery?"":"This reset link is invalid or expired. Request a new one from the sign-in page.";},1500);}
+const page=document.body.dataset.page;
+({forecast:initForecast,inventory:initInventory,import:initImport,suppliers:initSuppliers,auth:initAuth,reset:initReset}[page]||(()=>{}))();
+applyUser(null);
+if(guest!==null){if(page==="inventory")loadInventory();}
+else{try{const auth=client().auth;auth.onAuthStateChange((event,session)=>{if(event==="PASSWORD_RECOVERY"){recovery=true;if(page!=="reset")show("reset-password");}applyUser(session?.user||null);if(page==="inventory")setTimeout(()=>loadInventory().catch(err=>$("#inventoryMsg").textContent=err.message),0);});auth.getSession().then(({data})=>{applyUser(data.session?.user||null);if(page==="inventory")return loadInventory();}).catch(err=>{if($("#inventoryMsg"))$("#inventoryMsg").textContent=err.message;});}catch(err){if($("#authMsg"))$("#authMsg").textContent=err.message;}}
